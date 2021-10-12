@@ -13,7 +13,11 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```{r}
 library(tidyverse)
 
-loans <- read_csv("Loan_approval.csv", show_col_types = FALSE)
+gh_url <- "https://raw.githubusercontent.com/Izote/DATA622-Assignment-3/main/"
+
+loans <- read_csv(
+  str_c(gh_url, "Loan_approval.csv"), show_col_types = FALSE
+  )
 ```
 
 
@@ -26,11 +30,11 @@ cont_vars <- c(
 
 disc_vars <- c(
   "Gender", "Married", "Dependents", "Education", "Self_Employed", 
-  "Property_Area"
+  "Property_Area", "Credit_History"
   )
 ```
 
-Surveying the continuous variables available, we see that applicant/co-applicants' incomes and loan amounts share similarly right-skewed distributions, with the two income variables being more extreme in their skew. These three variables share a sense of scale (i.e. they refer to monetary amounts and two are incomes) whereas the loan term is on a different scale and measurement (months) along with its displaying a left-skewed distribution.
+Given that our target variable is an approved loan status ($Y$ value for $Loan_Status$), the very first observation we might make is that about 69% of the applicants represented in the data set were applicants with an approved loan. Surveying the continuous variables available, we see that applicant/co-applicants' incomes and loan amounts share similarly right-skewed distributions, with the two income variables being more extreme in their skew. These three variables share a sense of scale (i.e. they refer to monetary amounts and two are incomes) whereas the loan term is on a different scale and measurement (months) along with its displaying a left-skewed distribution.
 
 ```{r}
 pivot_longer(loans, all_of(cont_vars)) %>% 
@@ -40,12 +44,13 @@ pivot_longer(loans, all_of(cont_vars)) %>%
   scale_x_continuous(labels = scales::comma_format())
 ```
 
-Knowing that we will be utilizing linear discriminant analysis downstream, it's important to identify that, with the exception of `Loan_Amount_Term` a `log` transformation can be used to make these variables' distributions follow a more Gaussian shape.
+Knowing that we will be utilizing linear discriminant analysis downstream, it's important to identify that, with the exception of `Loan_Amount_Term`, we may be able to apply a transformation to force these variables into a more Gaussian shape.
 
-Taking the full data set and visualizing loan status for each discrete variable, we can see some interesting trends. An overwhelming number of the approved loans were awarded to those with no dependents. Graduates and males are also a dominant proportion of loan recipients within their given parameter. The self-employed seem far less likely to receive a loan, while semi-urban applicants seem to enjoy an edge over their suburban and urban counterparts. Married applicants are also at an advantage.
+Taking the full data set and visualizing loan status for each discrete variable, we can see some interesting trends. Credit history seems to play a crucial role, with applicants meeting guidelines (`Credit_History = 1`) showing only 7 denied-loans across a data set of 614 applicants. A majority proportion of the approved-loan group have no dependents, graduated from college and are male. That last feature initially gave some pause as it may have been indicative of a discriminatory bias, however, it appears that an overwhelming 80% of applicants identify as male.
 
 ```{r}
 long_disc <- loans %>% 
+  mutate(across("Credit_History", as.character)) %>% 
   select(disc_vars, Loan_Status) %>% 
   pivot_longer(all_of(disc_vars)) %>% 
   count(name, value, Loan_Status) %>% 
@@ -61,6 +66,8 @@ long_disc %>%
   scale_y_continuous(breaks = seq(0, 1, 0.1), labels = scales::percent_format(1)) +
   facet_wrap("name", scales = "free")
 ```
+
+Married applicants make up a majority in both groups, though married applicants make up a greater portion of approved-loan applicants across the whole data set. In terms of sheer count, however, it should be noted there are nearly twice as many married applicants than single ones. While different types of property area are well represented across both groups, there is some differentiation in how they are represented within each group. The self-employed are less represented in the approved-loan group, though this may be an artifact of the lack of representation of many self-employed applicants to begin with - they make up only 13% of applicants (or a count of 82). 
 
 # Section 2: Linear Discriminant Analysis
 

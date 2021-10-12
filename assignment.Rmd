@@ -51,7 +51,7 @@ Taking the full data set and visualizing loan status for each discrete variable,
 ```{r}
 long_disc <- loans %>% 
   mutate(across("Credit_History", as.character)) %>% 
-  select(disc_vars, Loan_Status) %>% 
+  select(all_of(c(disc_vars, "Loan_Status"))) %>% 
   pivot_longer(all_of(disc_vars)) %>% 
   count(name, value, Loan_Status) %>% 
   group_by(name) %>% 
@@ -71,8 +71,15 @@ Married applicants make up a majority in both groups, though married applicants 
 
 # Section 2: Linear Discriminant Analysis
 
-Assumption here is normal distribution across predictors and same variance among them. Some transformation will may be necessary to achieve closer-to-normal distribution.
+```{r}
+set.seed(3)
 
+training <- slice_sample(loans, prop = 0.70)
+
+remaining <- anti_join(loans, training, by = "Loan_ID")
+validation <- slice_sample(remaining, prop = 0.5)
+test <- anti_join(remaining, validation, by = "Loan_ID")
+```
 
 # Section 3: K-nearest neighbor
 

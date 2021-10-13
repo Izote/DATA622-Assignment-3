@@ -21,7 +21,7 @@ loans <- read_csv(
 ```
 
 
-# Section 1: Exploratory data analysis
+# Section 1: Exploratory Data Analysis (EDA)
 
 ```{r}
 cont_vars <- c(
@@ -36,17 +36,31 @@ disc_vars <- c(
 
 Given that our target variable is an approved loan status ($Y$ value for $Loan_Status$), the very first observation we might make is that about 69% of the applicants represented in the data set were applicants with an approved loan. Surveying the continuous variables available, we see that applicant/co-applicants' incomes and loan amounts share similarly right-skewed distributions, with the two income variables being more extreme in their skew. These three variables share a sense of scale (i.e. they refer to monetary amounts and two are incomes) whereas the loan term is on a different scale and measurement (months) along with its displaying a left-skewed distribution.
 
+It is notable that the variable representing the income of a co-applicant, `CoapplicantIncome`, is an untidy variable - it represents both whether a co-applicant was involved in the process *and* their income. There is insufficient context to understand how to best utilize this variable. For example, a co-applicant may be a married spouse, blood relative or even a domestic partner. We may be able to intuit and better engineer features based on this information, but without further context we cannot know for certain how to handle unmarried applicants vis-a-vis their `CoapplicantIncome` value.
+
 ```{r}
-pivot_longer(loans, all_of(cont_vars)) %>% 
-  ggplot(aes(value, color = Loan_Status)) +
-  geom_freqpoly() +
-  facet_wrap("name", scales = "free") +
-  scale_x_continuous(labels = scales::comma_format())
+show_dist <- function(df) {
+  df %>% 
+    ggplot(aes(value, color = Loan_Status)) +
+    geom_freqpoly(bins = 30) +
+    facet_wrap("name", scales = "free") +
+    scale_x_continuous(labels = scales::comma_format())
+}
+
+pivot_longer(loans, all_of(cont_vars)) %>% show_dist()
 ```
 
-Knowing that we will be utilizing linear discriminant analysis downstream, it's important to identify that, with the exception of `Loan_Amount_Term`, we may be able to apply a transformation to force these variables into a more Gaussian shape.
+Knowing that we will be utilizing linear discriminant analysis downstream, it's important to identify that, with the exception of `Loan_Amount_Term`, we may be able to apply a transformation to force these variables into a more Gaussian shape. In fact, `Loan_Amount_Term` should truly be considered a discrete variable as it seems to follow fixed 12-day increments. When visualized, we see that nearly all the applications were for 360 day loans.
 
-Taking the full data set and visualizing loan status for each discrete variable, we can see some interesting trends. Credit history seems to play a crucial role, with applicants meeting guidelines (`Credit_History = 1`) showing only 7 denied-loans across a data set of 614 applicants. A majority proportion of the approved-loan group have no dependents, graduated from college and are male. That last feature initially gave some pause as it may have been indicative of a discriminatory bias, however, it appears that an overwhelming 80% of applicants identify as male.
+```{r}
+loans <- mutate(loans, across("Loan_Amount_Term", as.character))
+
+loans %>% 
+  ggplot(aes(x = Loan_Amount_Term, fill = Loan_Status)) +
+  geom_bar(position = "dodge")
+```
+
+Taking the remaining data set and visualizing loan status for each discrete variable, we can see some interesting trends. Credit history seems to play a crucial role, with applicants meeting guidelines (`Credit_History = 1`) showing only 7 denied-loans across a data set of 614 applicants. A majority proportion of the approved-loan group have no dependents, graduated from college and are male. That last feature initially gave some pause as it may have been indicative of a discriminatory bias, however, it appears that an overwhelming 80% of applicants identify as male.
 
 ```{r}
 long_disc <- loans %>% 
@@ -71,15 +85,53 @@ Married applicants make up a majority in both groups, though married applicants 
 
 # Section 2: Linear Discriminant Analysis
 
+Our first goal is to create a model using Linear Discriminant Analysis (LDA). In order to achieve this, as stated earlier, we will need to assume a Gaussian distribution across predictors. This implicitly guides us towards the continuous variables that showed skewed distributions during EDA. 
+
+As such, we will conduct some transformations on these variables to help us achieve a (closer) to Gaussian distribution for these continuous variables. The variable `CoapplicantIncome` was not included in this work, due to the untidy aspects of its recording - which would only become exacerbated as the distribution becomes bimodal when employing `log` transformations. As discussed, the categorical variable `LoanAmount` will not be used in this scenario either. The new distributions can be seen below - while imperfect, they are far closer to a normal/Gaussian distribution than before.
+
+```{r}
+lda_cont <- c("ApplicantIncome", "LoanAmount")
+
+loans_lda <- loans %>% 
+  mutate(across(lda_cont, ~ scale(log(.))[ , 1])
+    )
+
+loans_lda %>% 
+  pivot_longer(lda_cont) %>% 
+  show_dist()
+```
+
 ```{r}
 set.seed(3)
 
-training <- slice_sample(loans, prop = 0.70)
+training <- slice_sample(loans_lda, prop = 0.70)
 
-remaining <- anti_join(loans, training, by = "Loan_ID")
+remaining <- anti_join(loans_lda, training, by = "Loan_ID")
 validation <- slice_sample(remaining, prop = 0.5)
 test <- anti_join(remaining, validation, by = "Loan_ID")
 ```
+
+```{r}
+lda_mod <- MASS::lda(
+  Loan_Status ~ ApplicantIncome + LoanAmount, data = training
+  )
+```
+
+```{r}
+lda_preds <- predict(lda_mod, newdata = validation)
+
+validation <- validation %>% 
+  mutate(
+    Posterior = lda_preds$posterior[, "N"],
+    Predicted_Status = if_else(Posterior <= 0.27, "N", "Y"),
+    Accuracy = Loan_Status == Predicted_Status
+  )
+```
+
+```{r}
+mean(validation$Accuracy, na.rm = TRUE)
+```
+
 
 # Section 3: K-nearest neighbor
 

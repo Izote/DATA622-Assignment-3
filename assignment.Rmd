@@ -92,50 +92,113 @@ As such, we will conduct some transformations on these variables to help us achi
 ```{r}
 lda_cont <- c("ApplicantIncome", "LoanAmount")
 
-loans_lda <- loans %>% 
+loans %>% 
   mutate(across(lda_cont, ~ scale(log(.))[ , 1])
-    )
-
-loans_lda %>% 
+    ) %>% 
   pivot_longer(lda_cont) %>% 
   show_dist()
 ```
 
+The transformations will not be directly applied to the data set itself as that would make potential changes more cumbersome to deal with down the road. Instead, the data will be divided into randomly selected training, validation and test data sets and the transformations will be part of the modeling function's call.
+
 ```{r}
 set.seed(3)
 
-training <- slice_sample(loans_lda, prop = 0.70)
+training <- slice_sample(loans, prop = 0.70)
 
-remaining <- anti_join(loans_lda, training, by = "Loan_ID")
+remaining <- anti_join(loans, training, by = "Loan_ID")
 validation <- slice_sample(remaining, prop = 0.5)
 test <- anti_join(remaining, validation, by = "Loan_ID")
 ```
 
 ```{r}
 lda_mod <- MASS::lda(
-  Loan_Status ~ ApplicantIncome + LoanAmount, data = training
+  Loan_Status ~ log(ApplicantIncome) + log(LoanAmount), data = training
   )
 ```
 
-```{r}
-lda_preds <- predict(lda_mod, newdata = validation)
+Through some initial experimentation, a threshold was settled upon to determine whether an applicant would be rejected for a loan. This was necessary because, due to the unbalanced priors, a "plain" LDA model would always classify our data as `Loan_Status = "Y"`, which is not remotely useful. In this way, any prediction where the posterior probability was greater/equal to 80% for an approval was classed as such.
 
-validation <- validation %>% 
-  mutate(
-    Posterior = lda_preds$posterior[, "N"],
-    Predicted_Status = if_else(Posterior <= 0.27, "N", "Y"),
-    Accuracy = Loan_Status == Predicted_Status
+```{r}
+set_preds <- function(df, preds, threshold) {
+  df <- df %>% 
+    mutate(
+      Posterior = preds$posterior[, "Y"],
+      Predicted_Status = if_else(Posterior <= threshold, "Y", "N"),
+      Score = Loan_Status == Predicted_Status
+    )
+  
+  mean(df$Score, na.rm = TRUE)
+}
+
+validation_preds <- predict(lda_mod, newdata = validation)
+test_preds <- predict(lda_mod, newdata = test)
+```
+
+
+```{r}
+set_preds(validation, validation_preds, 0.80)
+```
+
+This produced a model with an accuracy of about 65% against the validation data, which is a modest improvement from the null-model.
+
+```{r}
+set_preds(test, test_preds, 0.80)
+```
+
+This decreases further with the test data, though we still float at about 59% accuracy - again, a modest improvement on the null-model.
+
+# Section 3: K-nearest Neighbors (KNN)
+
+Utilizing KNN requires a different setup in how the data is provided to `class::KNN` than we saw with `MASS::lda`. Recycling  the training, validation and test split from before we simply modify the structure to facilitate using our next method.
+
+```{r}
+knn_data <- map(
+  list("train" = training, "val" = validation, "test" = test), 
+  ~ .x %>% 
+    select(all_of(
+      c("ApplicantIncome", "LoanAmount", "Credit_History", "Loan_Status")
+      )) %>% 
+    drop_na()
   )
 ```
 
+We'll want to land on a value for $k$ and doing so is much easier by mapping our function and visualizing the results.
+
 ```{r}
-mean(validation$Accuracy, na.rm = TRUE)
+do_knn <- function(test_set, k_val) {
+  class::knn(
+    train = select(knn_data[["train"]], -Loan_Status),
+    cl = knn_data[["train"]]$Loan_Status,
+    test = select(test_set, -Loan_Status),
+    k = k_val
+  )
+}
+
+neighbors <- seq(1, 10)
+
+val_scores <- map_dbl(
+  neighbors, 
+  ~ mean(do_knn(knn_data[["val"]], .x) == knn_data[["val"]]$Loan_Status)
+  )
 ```
 
 
-# Section 3: K-nearest neighbor
+```{r}
+tibble(k = neighbors, accuracy = val_scores) %>% 
+  ggplot(aes(k, accuracy)) +
+  geom_point(size = 2) +
+  geom_line(linetype = 2) +
+  labs(x = "k-Neighbor(s)", y = "Accuracy") +
+  scale_x_continuous(breaks = neighbors) +
+  scale_y_continuous(n.breaks = 8, labels = scales::percent_format(1))
+```
 
+Based on this output, it appears that the best choice as far this KNN model goes is to utilize $k=7$. Doing so with the test data set achieves the following accuracy. 
 
+```{r}
+mean(do_knn(knn_data[["test"]], 7) == knn_data[["test"]]$Loan_Status)
+```
 
 # Section 4: Decision trees
 

@@ -13,10 +13,8 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```{r}
 library(tidyverse)
 
-gh_url <- "https://raw.githubusercontent.com/Izote/DATA622-Assignment-3/main/"
-
 loans <- read_csv(
-  str_c(gh_url, "Loan_approval.csv"), show_col_types = FALSE
+  "https://raw.githubusercontent.com/Izote/DATA622-Assignment-3/main/Loan_approval.csv", show_col_types = FALSE
   )
 ```
 
@@ -109,9 +107,7 @@ training <- slice_sample(loans, prop = 0.70)
 remaining <- anti_join(loans, training, by = "Loan_ID")
 validation <- slice_sample(remaining, prop = 0.5)
 test <- anti_join(remaining, validation, by = "Loan_ID")
-```
 
-```{r}
 lda_mod <- MASS::lda(
   Loan_Status ~ log(ApplicantIncome) + log(LoanAmount), data = training
   )
@@ -150,17 +146,19 @@ This decreases further with the test data, though we still float at about 59% ac
 
 # Section 3: K-nearest Neighbors (KNN)
 
-Utilizing KNN requires a different setup in how the data is provided to `class::KNN` than we saw with `MASS::lda`. Recycling  the training, validation and test split from before we simply modify the structure to facilitate using our next method.
+Utilizing KNN requires a different setup in how the data is provided to `class::KNN` than we saw with `MASS::lda`. Recycling the training, validation and test split from before we simply modify the structure to facilitate using our next method. Additionally - the continuous predictors are scaled and centered in order to avoid differences of scale causing any one to dominate the results.
 
 ```{r}
 knn_data <- map(
-  list("train" = training, "val" = validation, "test" = test), 
+  list("train" = training, "val" = validation, "test" = test),
   ~ .x %>% 
     select(all_of(
       c("ApplicantIncome", "LoanAmount", "Credit_History", "Loan_Status")
       )) %>% 
-    drop_na()
-  )
+    drop_na() %>% 
+    mutate(across(c("ApplicantIncome", "LoanAmount"), ~ scale(.)[ ,1]))
+)
+
 ```
 
 We'll want to land on a value for $k$ and doing so is much easier by mapping our function and visualizing the results.
@@ -178,7 +176,7 @@ do_knn <- function(test_set, k_val) {
 neighbors <- seq(1, 10)
 
 val_scores <- map_dbl(
-  neighbors, 
+  neighbors,
   ~ mean(do_knn(knn_data[["val"]], .x) == knn_data[["val"]]$Loan_Status)
   )
 ```
@@ -194,10 +192,10 @@ tibble(k = neighbors, accuracy = val_scores) %>%
   scale_y_continuous(n.breaks = 8, labels = scales::percent_format(1))
 ```
 
-Based on this output, it appears that the best choice as far this KNN model goes is to utilize $k=7$. Doing so with the test data set achieves the following accuracy. 
+Based on this output, it appears that the best choice as far this KNN model goes is to utilize $k=5$. Doing so with the test data set achieves an accuracy of about 70%. 
 
 ```{r}
-mean(do_knn(knn_data[["test"]], 7) == knn_data[["test"]]$Loan_Status)
+mean(do_knn(knn_data[["test"]], 5) == knn_data[["test"]]$Loan_Status)
 ```
 
 # Section 4: Decision trees

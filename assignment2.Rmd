@@ -1,9 +1,10 @@
 ---
 title: 'Homework #3'
-author: "Michael Munguia"
+author: "Michael Munguia and Karim Hammoud"
 date: "10/17/2021"
 output: html_document
 ---
+
 
 ```{r setup}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
@@ -132,7 +133,8 @@ test_preds <- predict(lda_mod, newdata = test)
 
 
 ```{r}
-set_preds(validation, validation_preds, 0.80)
+lda_check <- set_preds(validation, validation_preds, 0.80)
+lda_check
 ```
 
 This produced a model with an accuracy of about 65% against the validation data, which is a modest improvement from the null-model.
@@ -199,12 +201,103 @@ mean(do_knn(knn_data[["test"]], 5) == knn_data[["test"]]$Loan_Status)
 
 # Section 4: Decision trees
 
+Lets start by splitting the data into train and test to run the decision tree and the random forest models. we chose 80% d
+```{r}
+library(caret)
+set.seed(123)
+
+loans2 <- loans %>%
+  select( Married, Property_Area, Credit_History, Education, Loan_Status )
+
+
+trainIndex <- createDataPartition(loans2$Loan_Status,p=0.80,list=FALSE)
+
+
+train <- loans2[trainIndex,]
+test <- loans2[-trainIndex,]
+
+
+row.has.na <- apply(train, 1, function(x){any(is.na(x))})
+train1 <- train[!row.has.na, ]
+
+row.has.na1 <- apply(test, 1, function(x){any(is.na(x))})
+test1 <- test[!row.has.na1, ]
+```
+
+Run the decision tree model.
+```{r}
+dt <- train(Loan_Status ~ .,
+              data = train1,
+              method = 'rpart')
+dt
+```
+As you see the final value used is cp = 0.1935484, and the accuracy is 81% which look better than the ones above.
+
+### Visualize the resulting decision tree:
+
+Decision Tree is a non-parameteric model that uses simple, branched decision rules to optimise classification.
+
+```{r}
+library(rattle)
+fancyRpartPlot(dt$finalModel)
+```
+
+
+
+
+Let see the confusion metrix for the decision tree
+```{r}
+predict_tree <- predict(dt, test1)
+
+table1 <- table(predict_tree, test1$Loan_Status)
+table1
+```
+As you see from the metrix above there were 28 N and only 1 Y, while there were 27 on the Y and should be Y. however there are 109 correct on the Y.
+
+
+
 
 
 # Section 5: Random forests
 
+Random Forest is an ensemble method that combines multiple decision trees to optimize classification
+
+Lets get the random forest library and run the model
+```{r}
+
+library(randomForest)
+random_forests <- train(Loan_Status ~ .,
+            data = train1,
+            method = 'rf')
+random_forests
+```
+From the above we can conculde the accuracy is about 80% in the random forest model which looks better than other models above.
+
+
+Let see the confusion metrix for the random forest.
+```{r}
+predict_forest <- predict(random_forests, test1)
+
+table2 <- table(predict_forest, test1$Loan_Status)
+table2
+```
+As you see from the metrix above there were 28 N and only 1 Y, while there were 27 on the Y and should be Y. however there are 109 correct on the Y. very close the the decision tree.
 
 
 # Section 6: Model performance
+
+**As of model #2 this produced a model with an accuracy of about 65% against the validation data, which is a modest improvement from the null-model.**
+
+```{r}
+lda_check
+```
+
+**While in model #5 from the above we can conculde the accuracy is about 80% in the random forest model which looks better than other models above.**
+
+```{r}
+random_forests
+```
+
+**I looks the random forest has more accuracy level in this data, so I will make a better predictor for the the loan approval process.**
 
 
